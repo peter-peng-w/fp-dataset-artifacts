@@ -45,6 +45,17 @@ For more details, see [this doc](https://huggingface.co/transformers/v4.0.1/inst
 An ELECTRA-small based NLI model trained on SNLI for 3 epochs (e.g. with the command above) should achieve an accuracy of around 89%, depending on batch size.
 An ELECTRA-small based QA model trained on SQuAD for 3 epochs should achieve around 78 exact match score and 86 F1 score.
 
+### (NEW) Update on how to run the code
+The aforementioned commands are written in bash file. Directly run
+`
+bash train_qa_squad.sh
+`
+to train the model, and run
+`
+bash eval_qa_squad.sh
+`
+to evaluate the model. You might need to change some of the parameters in the bash file, for example the batch-size and which model you want to load.
+
 ## Working with datasets
 This repo uses [Huggingface Datasets](https://huggingface.co/docs/datasets/) to load data.
 The Dataset objects loaded by this module can be filtered and updated easily using the `Dataset.filter` and `Dataset.map` methods.
