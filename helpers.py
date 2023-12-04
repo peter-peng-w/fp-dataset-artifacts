@@ -5,6 +5,7 @@ from transformers import Trainer, EvalPrediction
 from transformers.trainer_utils import PredictionOutput
 from typing import Tuple
 from tqdm.auto import tqdm
+import json
 
 QA_MAX_ANSWER_LENGTH = 30
 
@@ -36,10 +37,58 @@ def compute_accuracy(eval_preds: EvalPrediction):
     }
 
 
+""" Each split is in a structured json file with a number of questions and answers
+for each passage (or context). We’ll take this apart into parallel lists of contexts,
+questions, and answers (note that the contexts here are repeated since there are multiple
+questions per context):
+"""
+def read_squad_qa(path):
+    ids = []
+    titles = []
+    contexts = []
+    questions = []
+    answers = []
+    with open(path, encoding="utf-8") as f:
+        squad = json.load(f)
+        for article in squad["data"]:
+            title = article.get("title", "")
+            for paragraph in article["paragraphs"]:
+                context = paragraph["context"]  # do not strip leading blank spaces GH-2585
+                for qa in paragraph["qas"]:
+                    answer_starts = [answer["answer_start"] for answer in qa["answers"]]
+                    answer_texts = [answer["text"] for answer in qa["answers"]]
+                    ids.append(qa["id"])
+                    titles.append(title)
+                    contexts.append(context)
+                    questions.append(qa["question"])
+                    answers.append({
+                        "answer_start": answer_starts,
+                        "text": answer_texts
+                    })
+
+    return ids, contexts, questions, answers
+
+
 # This function preprocesses a question answering dataset, tokenizing the question and context text
 # and finding the right offsets for the answer spans in the tokenized context (to use as labels).
 # Adapted from https://github.com/huggingface/transformers/blob/master/examples/pytorch/question-answering/run_qa.py
 def prepare_train_dataset_qa(examples, tokenizer, max_seq_length=None):
+    verbose = False
+    if verbose:
+        print("Preprocessing training dataset...")
+        print("Number of examples questions: ", len(examples["question"]))
+        print("Number of examples context: ", len(examples["context"]))
+        print("Number of examples answers: ", len(examples["answers"]))
+        print("type of examples: ", type(examples))
+        print('first example: ')
+        print(examples['question'][0])
+        print(examples['context'][0])
+        print(examples['answers'][0])
+        print('last example: ')
+        print(examples['question'][-1])
+        print(examples['context'][-1])
+        print(examples['answers'][-1])
+        print('\n\n')
     questions = [q.lstrip() for q in examples["question"]]
     max_seq_length = tokenizer.model_max_length
     # tokenize both questions and the corresponding context
@@ -48,21 +97,40 @@ def prepare_train_dataset_qa(examples, tokenizer, max_seq_length=None):
     tokenized_examples = tokenizer(
         questions,
         examples["context"],
-        truncation="only_second",
+        truncation="only_second",               # only truncate the context
         max_length=max_seq_length,
         stride=min(max_seq_length // 2, 128),
         return_overflowing_tokens=True,
-        return_offsets_mapping=True,
+        return_offsets_mapping=True,            # set to True to return (char_start, char_end) for each token
         padding="max_length"
     )
+    if verbose:
+        print("After tokenization:")
+        print(tokenized_examples[0])
 
     # Since one example might give us several features if it has a long context,
     # we need a map from a feature to its corresponding example.
     sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
+
     # The offset mappings will give us a map from token to character position
     # in the original context. This will help us compute the start_positions
     # and end_positions to get the final answer string.
+    # each offset mapping corresponds to a particular feature (part of a context chunk if it is too long)
+    # offset_mapping[i] is a list of tuples (char_start, char_end) for each token in the i-th feature
     offset_mapping = tokenized_examples.pop("offset_mapping")
+
+    if verbose:
+        print(len(sample_mapping))
+        print(len(offset_mapping))
+        print(sample_mapping)
+        print(offset_mapping[0])
+        print('[CLS] token id: ', tokenizer.cls_token_id)       # 101
+        print('[SEP] token id: ', tokenizer.sep_token_id)       # 102
+        print('[PAD] token id: ', tokenizer.pad_token_id)       # 0
+        print('[UNK] token id: ', tokenizer.unk_token_id)       # 100
+        print(tokenized_examples["input_ids"][0], len(tokenized_examples["input_ids"][0]))
+        print(tokenized_examples.sequence_ids(0), len(tokenized_examples.sequence_ids(0)))
+        exit()
 
     tokenized_examples["start_positions"] = []
     tokenized_examples["end_positions"] = []
@@ -82,9 +150,14 @@ def prepare_train_dataset_qa(examples, tokenizer, max_seq_length=None):
             tokenized_examples["end_positions"].append(cls_index)
         else:
             # Start/end character index of the answer in the text.
+            # NOTE: There might be more than one answers in the answer list.
+            # We only use the first one.
             start_char = answers["answer_start"][0]
             end_char = start_char + len(answers["text"][0])
 
+            # NOTE: sequence_ids contains 0, 1, and None.
+            # 0 and 1 correspond to the question and context respectively.
+            # None corresponds to the special tokens such as [CLS] and [SEP] and [PAD].
             # Start token index of the current span in the text.
             token_start_index = 0
             while sequence_ids[token_start_index] != 1:
