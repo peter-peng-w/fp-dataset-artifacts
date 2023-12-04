@@ -82,20 +82,18 @@ def main():
         default_datasets = {'qa': ('squad',), 'nli': ('snli',)}
         dataset_id = tuple(args.dataset.split(':')) if args.dataset is not None else \
             default_datasets[args.task]
-        print(dataset_id)
-        
+        print('Load dataset: ', dataset_id)
         # MNLI has two validation splits (one with matched domains and one with mismatched domains). Most datasets just have one "validation" split
         eval_split = 'validation_matched' if dataset_id == ('glue', 'mnli') else 'validation'
         # Load the raw data
         dataset = None
-        print()
         if dataset_id[0] == 'squad_adversarial':
-          # dataset = datasets.load_dataset(*dataset_id, 'AddOneSent')
-          dataset = datasets.load_dataset(*dataset_id, 'AddSent')
+            # dataset = datasets.load_dataset(*dataset_id, 'AddOneSent')        # this is the split for AddOneSent
+            dataset = datasets.load_dataset(*dataset_id, 'AddSent')             # this is the split for AddSent
         elif dataset_id[0] == 'adversarial_qa':
-          dataset = datasets.load_dataset(*dataset_id, 'adversarialQA')
+            dataset = datasets.load_dataset(*dataset_id, 'adversarialQA')
         else:
-          dataset = datasets.load_dataset(*dataset_id)
+            dataset = datasets.load_dataset(*dataset_id)
 
     # NLI models need to have the output label count specified (label 0 is "entailed", 1 is "neutral", and 2 is "contradiction")
     task_kwargs = {'num_labels': 3} if args.task == 'nli' else {}

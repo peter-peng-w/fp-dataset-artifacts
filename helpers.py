@@ -41,6 +41,7 @@ def compute_accuracy(eval_preds: EvalPrediction):
 for each passage (or context). We’ll take this apart into parallel lists of contexts,
 questions, and answers (note that the contexts here are repeated since there are multiple
 questions per context):
+refer to https://huggingface.co/datasets/squad/blob/main/squad.py
 """
 def read_squad_qa(path):
     ids = []
