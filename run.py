@@ -3,10 +3,12 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, \
     AutoModelForQuestionAnswering, Trainer, TrainingArguments, HfArgumentParser
 from helpers import prepare_dataset_nli, prepare_train_dataset_qa, \
     prepare_validation_dataset_qa, QuestionAnsweringTrainer, compute_accuracy
+from helpers import read_squad_qa
 import os
 import json
+from datasets import DatasetDict
 
-NUM_PREPROCESSING_WORKERS = 2
+NUM_PREPROCESSING_WORKERS = 2       # should use some larger number such as 2 or 4 in practice
 
 
 def main():
@@ -56,8 +58,22 @@ def main():
     # {"premise": "Two women are embracing.", "hypothesis": "The sisters are hugging.", "label": 1}
     if args.dataset.endswith('.json') or args.dataset.endswith('.jsonl'):
         dataset_id = None
-        # Load from local json/jsonl file
-        dataset = datasets.load_dataset('json', data_files=args.dataset)
+        if args.task == 'qa':
+            # Load from local json/jsonl file
+            print("Loading QA dataset from local file: {}".format(args.dataset))
+            ids, contexts, questions, answers = read_squad_qa(args.dataset)
+            print("Number of training examples: {}".format(len(ids)))
+            print("Example:\n{}\n{}\n{}\n{}".format(ids[0], contexts[0], questions[0], answers[0]))
+            train_dataset = datasets.Dataset.from_dict(
+                {'id': ids, 'context': contexts, 'question': questions, 'answers': answers})
+            print(train_dataset)
+            dataset = DatasetDict({'train': train_dataset})
+            eval_split = 'train'
+        elif args.task == 'nli':
+            # Load from local json/jsonl file
+            dataset = datasets.load_dataset('json', data_files=args.dataset)
+        else:
+            raise ValueError('Unrecognized task name: {}'.format(args.task))
         # By default, the "json" dataset loader places all examples in the train split,
         # so if we want to use a jsonl file for evaluation we need to get the "train" split
         # from the loaded dataset
@@ -97,7 +113,7 @@ def main():
     if dataset_id == ('snli',):
         # remove SNLI examples with no label
         dataset = dataset.filter(lambda ex: ex['label'] != -1)
-    
+
     train_dataset = None
     eval_dataset = None
     train_dataset_featurized = None
@@ -106,6 +122,7 @@ def main():
         train_dataset = dataset['train']
         if args.max_train_samples:
             train_dataset = train_dataset.select(range(args.max_train_samples))
+        print("Number of training examples: {}".format(len(train_dataset)))
         train_dataset_featurized = train_dataset.map(
             prepare_train_dataset,
             batched=True,
@@ -139,7 +156,6 @@ def main():
             predictions=eval_preds.predictions, references=eval_preds.label_ids)
     elif args.task == 'nli':
         compute_metrics = compute_accuracy
-    
 
     # This function wraps the compute_metrics function, storing the model's predictions
     # so that they can be dumped along with the computed metrics
