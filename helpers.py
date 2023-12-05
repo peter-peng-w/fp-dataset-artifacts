@@ -43,7 +43,7 @@ questions, and answers (note that the contexts here are repeated since there are
 questions per context):
 refer to https://huggingface.co/datasets/squad/blob/main/squad.py
 """
-def read_squad_qa(path):
+def read_squad_qa_json(path):
     ids = []
     titles = []
     contexts = []
@@ -66,6 +66,26 @@ def read_squad_qa(path):
                         "answer_start": answer_starts,
                         "text": answer_texts
                     })
+
+    return ids, contexts, questions, answers
+
+
+def read_squad_qa_jsonl(path):
+    """ Each line contains a dict with the following keys: title, context, question, id, answers.
+    """
+    ids = []
+    titles = []
+    contexts = []
+    questions = []
+    answers = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            qa = json.loads(line)
+            ids.append(qa["id"])
+            titles.append(qa["title"])
+            contexts.append(qa["context"])
+            questions.append(qa["question"])
+            answers.append(qa["answers"])
 
     return ids, contexts, questions, answers
 

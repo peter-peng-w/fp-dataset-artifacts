@@ -3,7 +3,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, \
     AutoModelForQuestionAnswering, Trainer, TrainingArguments, HfArgumentParser
 from helpers import prepare_dataset_nli, prepare_train_dataset_qa, \
     prepare_validation_dataset_qa, QuestionAnsweringTrainer, compute_accuracy
-from helpers import read_squad_qa
+from helpers import read_squad_qa_json, read_squad_qa_jsonl
 import os
 import json
 from datasets import DatasetDict
@@ -41,6 +41,8 @@ def main():
         By default, "nli" will use the SNLI dataset, and "qa" will use the SQuAD dataset.""")
     argp.add_argument('--dataset', type=str, default=None,
                       help="""This argument overrides the default dataset used for the specified task.""")
+    argp.add_argument('--adv_dataset', type=str, default=[None], nargs="*",
+                      help="""This argument defines the adversarial training dataset used for the specified task.""")
     argp.add_argument('--max_length', type=int, default=128,
                       help="""This argument limits the maximum sequence length used during training/evaluation.
         Shorter sequence lengths need less memory and computation time, but some examples may end up getting truncated.""")
@@ -60,12 +62,41 @@ def main():
         dataset_id = None
         if args.task == 'qa':
             # Load from local json/jsonl file
+            # Load the target dataset.
+            # For adversarial training, this should be the original clean dataset.
+            # For standard fine-tuning, this shold be the target dataset you want to fine-tune on.
+            # For evaluation, this should be the target dataset you want to evaluate on.
             print("Loading QA dataset from local file: {}".format(args.dataset))
-            ids, contexts, questions, answers = read_squad_qa(args.dataset)
+            if args.dataset.endswith('.json'):
+                ids, contexts, questions, answers = read_squad_qa_json(args.dataset)
+            else:
+                ids, contexts, questions, answers = read_squad_qa_jsonl(args.dataset)
             print("Number of training examples: {}".format(len(ids)))
             print("Example:\n{}\n{}\n{}\n{}".format(ids[0], contexts[0], questions[0], answers[0]))
+            # Load the adversarial dataset. There might be several adversarial datasets during adversarial training.
+            ids_adv = []
+            contexts_adv = []
+            questions_adv = []
+            answers_adv = []
+            for adv_dataset in args.adv_dataset:
+                if adv_dataset is None:
+                    continue
+                print("Loading adversarial QA dataset from local file: {}".format(adv_dataset))
+                if adv_dataset.endswith('.json'):
+                    ids_adv_, contexts_adv_, questions_adv_, answers_adv_ = read_squad_qa_json(adv_dataset)
+                else:
+                    ids_adv_, contexts_adv_, questions_adv_, answers_adv_ = read_squad_qa_jsonl(adv_dataset)
+                print("Number of adversarial training examples: {}".format(len(ids_adv_)))
+                ids_adv.extend(ids_adv_)
+                contexts_adv.extend(contexts_adv_)
+                questions_adv.extend(questions_adv_)
+                answers_adv.extend(answers_adv_)
+            # directly combine the original dataset and the adversarial dataset
             train_dataset = datasets.Dataset.from_dict(
-                {'id': ids, 'context': contexts, 'question': questions, 'answers': answers})
+                {'id': ids+ids_adv,
+                 'context': contexts+contexts_adv,
+                 'question': questions+questions_adv,
+                 'answers': answers+answers_adv})
             print(train_dataset)
             dataset = DatasetDict({'train': train_dataset})
             eval_split = 'train'
@@ -88,8 +119,8 @@ def main():
         # Load the raw data
         dataset = None
         if dataset_id[0] == 'squad_adversarial':
-            # dataset = datasets.load_dataset(*dataset_id, 'AddOneSent')        # this is the split for AddOneSent
-            dataset = datasets.load_dataset(*dataset_id, 'AddSent')             # this is the split for AddSent
+            dataset = datasets.load_dataset(*dataset_id, 'AddOneSent')        # this is the split for AddOneSent
+            # dataset = datasets.load_dataset(*dataset_id, 'AddSent')             # this is the split for AddSent
         elif dataset_id[0] == 'adversarial_qa':
             dataset = datasets.load_dataset(*dataset_id, 'adversarialQA')
         else:
