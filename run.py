@@ -50,6 +50,8 @@ def main():
                       help='Limit the number of examples to train on.')
     argp.add_argument('--max_eval_samples', type=int, default=None,
                       help='Limit the number of examples to evaluate on.')
+    argp.add_argument('--eval_train_dynamic_epoch', type=int, default=None,
+                      help='Number of epoch to evaluate the training dynamics.')
 
     training_args, args = argp.parse_args_into_dataclasses()
 
@@ -193,6 +195,10 @@ def main():
         metric = datasets.load_metric('squad')
         compute_metrics = lambda eval_preds: metric.compute(
             predictions=eval_preds.predictions, references=eval_preds.label_ids)
+        if args.eval_train_dynamic_epoch is not None:
+            eval_kwargs['evaluate_training_dynamic'] = True
+        else:
+            eval_kwargs['evaluate_training_dynamic'] = False
     elif args.task == 'nli':
         compute_metrics = compute_accuracy
 
@@ -225,7 +231,7 @@ def main():
         #   and https://huggingface.co/transformers/main_classes/callback.html#transformers.TrainerCallback
 
     if training_args.do_eval:
-        results = trainer.evaluate(**eval_kwargs)
+        results, training_dynamics = trainer.evaluate(**eval_kwargs)
 
         # To add custom metrics, you should replace the "compute_metrics" function (see comments above).
         #
@@ -257,6 +263,27 @@ def main():
                     example_with_prediction['predicted_label'] = int(eval_predictions.predictions[i].argmax())
                     f.write(json.dumps(example_with_prediction))
                     f.write('\n')
+
+        if not os.path.exists(os.path.join(training_args.output_dir, 'training_dynamics')):
+            os.makedirs(os.path.join(training_args.output_dir, 'training_dynamics'))
+
+        if args.eval_train_dynamic_epoch is not None:
+            with open(os.path.join(training_args.output_dir,
+                                   'training_dynamics',
+                                   'dynamics_epoch_{}.json'.format(args.eval_train_dynamic_epoch)),
+                      encoding='utf-8', mode='w') as f:
+                if args.task == 'qa':
+                    # TODO: Training Dynamics for QA currently only uses the prediction on the start token.
+                    for k, v in training_dynamics.items():
+                        train_dynamic_data = {
+                            'guid': k,
+                            'logits_epoch_{}'.format(args.eval_train_dynamic_epoch): v['start_logits'].tolist(),
+                            'gold': v['gold_start_position'],
+                        }
+                        f.write(json.dumps(train_dynamic_data))
+                        f.write('\n')
+                else:
+                    raise NotImplementedError('training_dynamics is not implemented for task: {}'.format(args.task))
 
 
 if __name__ == "__main__":
